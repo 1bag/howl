@@ -1,0 +1,26 @@
+import discord
+from discord.ext import commands
+
+# Replace 'your_token_here' with your actual bot token
+TOKEN = 'your_token_here'
+# The URL you want to link to
+URL = "https://example.com"
+
+intents = discord.Intents.default()
+
+# Create a bot instance with Intents
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# Declare a command using the slash command decorator
+@bot.tree.command(name="link", description="Get a link to a URL")
+async def link(interaction: discord.Interaction):
+    await interaction.response.send_message(f"Click here to visit: {URL}", ephemeral=True)
+
+@bot.event
+async def on_ready():
+    print(f'Logged in as {bot.user}!')
+    # Sync the command tree with Discord
+    await bot.tree.sync()
+
+# Run the bot
+bot.run(TOKEN)
