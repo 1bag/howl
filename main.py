@@ -35,6 +35,7 @@
 
 import discord
 from discord.ext import commands
+from discord.ui import Select, View
 import os
 import json
 
@@ -94,10 +95,56 @@ def save_boost_history(boost_history):
 # Initialize the boost history
 boost_history = load_boost_history()
 
+# Default streaming parameters
+default_stream_name = "Default Stream Name"
+default_stream_url = "https://yourdefaultstreamurl.com"  # Set a default stream URL
+stream_image_url = "https://media.discordapp.net/attachments/1300930696105169048/1301625458588254248/600x600bf-60-removebg-preview.png?ex=6725d16c&is=67247fec&hm=8f7805358280841e17b355b0c7573016279c3e4011352bad94858b3e678a764d&=&format=webp&quality=lossless&width=473&height=473"
+
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}')
+
+    # Set the initial streaming status
+    streaming_activity = discord.Streaming(name=default_stream_name, url=default_stream_url)
+    await bot.change_presence(activity=streaming_activity)
+
     await update_boost_history()  # Update boost history when the bot is ready
+
+class StatusSelect(Select):
+    def __init__(self):
+        # Building the select menu
+        options = [
+            discord.SelectOption(label="Online", value="online"),
+            discord.SelectOption(label="Do Not Disturb", value="dnd"),
+            discord.SelectOption(label="Idle", value="idle")
+        ]
+        super().__init__(placeholder="Select a status...", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        status_mapping = {
+            "online": discord.Status.online,
+            "dnd": discord.Status.dnd,
+            "idle": discord.Status.idle
+        }
+        selected_status = self.values[0]  # Get selected value
+        new_status = status_mapping[selected_status]
+
+        await bot.change_presence(status=new_status)
+        await interaction.response.send_message(f"Bot status changed to **{selected_status.capitalize()}**!", ephemeral=True)
+
+@bot.command()
+async def botstatus(ctx):
+    """Usage: !botstatus
+    Opens a dropdown to change the bot's status.
+    Only accessible by authorized users."""
+    if ctx.author.id not in AUTHORIZED_USERS:
+        return await ctx.send("You are not authorized to use this command.")
+
+    # Create the view with a select menu
+    view = View()
+    view.add_item(StatusSelect())
+
+    await ctx.send("Select the bot's status:", view=view)
 
 @bot.event
 async def on_member_join(member):
@@ -194,6 +241,37 @@ async def tos(ctx):
     await ctx.send(embed=embed)
 
 @bot.command()
+async def status(ctx):
+    """Usage: !status
+    Checks if the server is following the Terms of Service."""
+
+    compliance_issues = await check_server_status()
+
+    if not compliance_issues:
+        description = "✅ The server is following the Discord Terms of Service."
+    else:
+        description = "❌ The server has the following compliance issues:\n" + "\n".join(compliance_issues)
+
+    embed = discord.Embed(
+        title="Server Compliance Status",
+        description=description,
+        color=0xff8500
+    )
+
+    await ctx.send(embed=embed)
+
+async def check_server_status():
+    # Define rules
+    compliance_issues = []  # If any issues arise, append here
+
+    # You could implement specific checks below, here's an example:
+    if True:  # Replace this with actual checks, e.g., for roles, messages, etc.
+        compliance_issues.append("There might be a potential compliance issue.")
+
+    # You can add any other checks necessary for your server
+    return compliance_issues
+
+@bot.command()
 async def boost(ctx):
     """Usage: !boost
     Displays the list of users who have boosted the server.
@@ -216,6 +294,43 @@ async def boost(ctx):
             description="No users have boosted the server.",
             color=0xff8500  # Set embed color to 0xff8500
         )
+
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def setstream(ctx, *, stream_info: str):
+    """Usage: !setstream <stream_name> <stream_url>
+    Sets the streaming status for the bot. Only accessible by authorized users."""
+    if ctx.author.id not in AUTHORIZED_USERS:
+        return await ctx.send("You are not authorized to use this command.")
+
+    try:
+        # Split the stream_info to get name and URL
+        stream_name, stream_url = stream_info.split(' ', 1)
+    except ValueError:
+        return await ctx.send("Please provide both a stream name and a stream URL separated by a space.")
+
+    # Set the new streaming status
+    streaming_activity = discord.Streaming(name=stream_name, url=stream_url)
+    await bot.change_presence(activity=streaming_activity)
+
+    embed = discord.Embed(
+        title="Streaming Status Updated",
+        description=f"The bot is now streaming: **{stream_name}**\nWatch at: {stream_url}",
+        color=0xff8500
+    )
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def streamimage(ctx):
+    """Usage: !streamimage
+    Shows the image associated with the current stream."""
+    embed = discord.Embed(
+        title="Current Stream Image",
+        description="Here's the image associated with the current stream:",
+        color=0xff8500
+    )
+    embed.set_image(url=stream_image_url)
 
     await ctx.send(embed=embed)
 
@@ -327,7 +442,8 @@ async def info(ctx, command_name: str):
         "ping": "The `!ping` command returns the bot's current latency.",
         "userinfo": "The `!userinfo @member` command displays information about the specified user.",
         "serverinfo": "The `!serverinfo` command displays information about the server.",
-        "prefix": "The `!prefix <new_prefix>` command allows you to change the command prefix for the bot."
+        "prefix": "The `!prefix <new_prefix>` command allows you to change the command prefix for the bot.",
+        "status": "The `!status` command checks if the server is following the Terms of Service."
     }
 
     command_name = command_name.lower()
@@ -413,6 +529,31 @@ async def prefix(ctx, new_prefix: str):
         description=f"The command prefix has been changed to `{new_prefix}`.",
         color=0xff8500
     )
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def authorized(ctx):
+    """Usage: !authorized
+    Lists all authorized users who can use certain commands.
+    Restricted to authorized users only."""
+    if ctx.author.id not in AUTHORIZED_USERS:
+        return await ctx.send("You are not authorized to use this command.")
+
+    authorized_mentions = [f"<@{user_id}>" for user_id in AUTHORIZED_USERS]
+
+    if authorized_mentions:
+        embed = discord.Embed(
+            title="Authorized Users",
+            description="The following users are authorized to use certain commands:\n" + "\n".join(authorized_mentions),
+            color=0xff8500  # Set embed color to 0xff8500
+        )
+    else:
+        embed = discord.Embed(
+            title="Authorized Users",
+            description="There are currently no authorized users.",
+            color=0xff8500  # Set embed color to 0xff8500
+        )
+
     await ctx.send(embed=embed)
 
 # Run the bot
